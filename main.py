@@ -18,6 +18,10 @@ os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     ocr = ddddocr.DdddOcr()
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "Udyam Verifier API"}
+
 def get_captcha_text(page):
     captcha_elem = page.locator("img[src*='captcha'], img[src*='Captcha'], #ContentPlaceHolder1_imgCaptcha").first
     captcha_elem.screenshot(path="captcha.png")
@@ -93,7 +97,7 @@ def verify(req: VerifyRequest):
             page.wait_for_timeout(5000)
 
             body_text = page.locator("body").inner_text().lower()
-            if "invalid" in body_text or "wrong" in body_text or "incorrect" in body_text:
+            if any(w in body_text for w in ["invalid", "wrong", "incorrect", "cannot read", "does not support"]):
                 continue
             else:
                 full_body = page.locator("body").inner_text()

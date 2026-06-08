@@ -1,6 +1,6 @@
 import io
 import os
-import sys
+import re
 from contextlib import redirect_stdout, redirect_stderr
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -11,8 +11,6 @@ app = FastAPI()
 
 class VerifyRequest(BaseModel):
     udyam_no: str
-    company_name: str
-    email: str
 
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -23,6 +21,8 @@ def root():
     return {"status": "ok", "message": "Udyam Verifier API"}
 
 def get_captcha_text(page):
+    if os.path.exists("captcha.png"):
+        os.remove("captcha.png")
     captcha_elem = page.locator("img[src*='captcha'], img[src*='Captcha'], #ContentPlaceHolder1_imgCaptcha").first
     captcha_elem.screenshot(path="captcha.png")
     with open("captcha.png", "rb") as f:
@@ -30,23 +30,8 @@ def get_captcha_text(page):
     text = result.strip().upper()
     return text
 
-def verify_details(body_text, company_name, email):
-    results = {}
-    if company_name.strip().lower() in body_text.lower():
-        results["company"] = f"✅ Company Verified: '{company_name}' found"
-    else:
-        results["company"] = f"❌ Company NOT matched: '{company_name}' not found"
-    if email.strip().lower() in body_text.lower():
-        results["email"] = f"✅ Email Verified: '{email}' found"
-    else:
-        results["email"] = f"❌ Email NOT matched: '{email}' not found"
-    if "✅" in results["company"] and "✅" in results["email"]:
-        results["verdict"] = "FULLY VERIFIED"
-    elif "✅" in results["company"]:
-        results["verdict"] = "PARTIALLY VERIFIED"
-    else:
-        results["verdict"] = "NOT VERIFIED"
-    return results
+def normalize_udyam(raw):
+    return re.sub(r"[^A-Z0-9]", "", raw.upper())
 
 def navigate_to_verify(page):
     for nav_attempt in range(3):
@@ -57,12 +42,13 @@ def navigate_to_verify(page):
             page.wait_for_load_state("domcontentloaded", timeout=60000)
             page.wait_for_timeout(3000)
             return True
-        except Exception as e:
+        except Exception:
             page.wait_for_timeout(2000)
     return False
 
 @app.post("/verify")
 def verify(req: VerifyRequest):
+    target = normalize_udyam(req.udyam_no)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, slow_mo=500)
         page = browser.new_page()
@@ -87,7 +73,12 @@ def verify(req: VerifyRequest):
         page.locator('input[type="text"]').first.fill(req.udyam_no)
 
         for attempt in range(5):
-            captcha_text = get_captcha_text(page)
+            try:
+                captcha_text = get_captcha_text(page)
+            except Exception as e:
+                browser.close()
+                return {"error": f"CAPTCHA screenshot/OCR failed: {str(e)}"}
+
             captcha_input = page.locator(
                 "#ContentPlaceHolder1_txtCaptcha, input[name*='Captcha'], input[name*='captcha'], input[placeholder*='erification']"
             ).first
@@ -96,14 +87,15 @@ def verify(req: VerifyRequest):
             page.locator("#ctl00_ContentPlaceHolder1_btnVerify").click()
             page.wait_for_timeout(5000)
 
-            body_text = page.locator("body").inner_text().lower()
-            if any(w in body_text for w in ["invalid", "wrong", "incorrect", "cannot read", "does not support"]):
+            body_text = page.locator("body").inner_text()
+            body_lower = body_text.lower()
+            if any(w in body_lower for w in ["invalid", "wrong", "incorrect", "cannot read", "does not support"]):
                 continue
-            else:
-                full_body = page.locator("body").inner_text()
-                results = verify_details(full_body, req.company_name, req.email)
-                browser.close()
-                return results
+
+            browser.close()
+            if target in normalize_udyam(body_text):
+                return {"status": "valid", "udyam_no": req.udyam_no}
+            return {"status": "not verified", "udyam_no": req.udyam_no}
 
         browser.close()
         return {"error": "Failed to verify after 5 CAPTCHA attempts"}

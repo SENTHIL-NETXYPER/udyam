@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Screenshots / test images
+*.png
+
+# Environment
+.env
+
+# Lock files
+uv.lock

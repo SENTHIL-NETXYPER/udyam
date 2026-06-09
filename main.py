@@ -30,9 +30,6 @@ def get_captcha_text(page):
     text = result.strip().upper()
     return text
 
-def normalize_udyam(raw):
-    return re.sub(r"[^A-Z0-9]", "", raw.upper())
-
 def navigate_to_verify(page):
     for nav_attempt in range(3):
         try:
@@ -48,7 +45,11 @@ def navigate_to_verify(page):
 
 @app.post("/verify")
 def verify(req: VerifyRequest):
-    target = normalize_udyam(req.udyam_no)
+    if not req.udyam_no or not req.udyam_no.strip():
+        return {"error": "udyam_no is required"}
+
+    target = req.udyam_no.strip().upper()
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, slow_mo=500)
         page = browser.new_page()
@@ -93,7 +94,7 @@ def verify(req: VerifyRequest):
                 continue
 
             browser.close()
-            if target in normalize_udyam(body_text):
+            if target in body_text.upper():
                 return {"status": "valid", "udyam_no": req.udyam_no}
             return {"status": "not verified", "udyam_no": req.udyam_no}
 

@@ -24,20 +24,20 @@ def get_captcha_text(page):
     if os.path.exists("captcha.png"):
         os.remove("captcha.png")
     captcha_elem = page.locator("img[src*='captcha'], img[src*='Captcha'], #ContentPlaceHolder1_imgCaptcha").first
+    captcha_elem.wait_for(state="visible", timeout=15000)
     captcha_elem.screenshot(path="captcha.png")
     with open("captcha.png", "rb") as f:
         result = ocr.classification(f.read())
-    text = result.strip().upper()
-    return text
+    return result.strip().upper()
 
 def navigate_to_verify(page):
     for nav_attempt in range(3):
         try:
-            page.locator("text=Print/Verify").hover(timeout=15000)
-            page.wait_for_timeout(1500)
-            page.locator("text=Verify Udyam Registration").click(force=True, timeout=15000)
+            page.locator("text=Print/Verify").hover(timeout=10000)
+            page.wait_for_timeout(500)
+            page.locator("text=Verify Udyam Registration").click(force=True, timeout=10000)
             page.wait_for_load_state("domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(1000)
             return True
         except Exception:
             page.wait_for_timeout(2000)
@@ -53,7 +53,7 @@ def verify(req: VerifyRequest):
         return {"status": "not verified", "udyam_no": req.udyam_no, "reason": "invalid format"}
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, slow_mo=500)
+        browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.set_default_timeout(60000)
 
@@ -62,7 +62,7 @@ def verify(req: VerifyRequest):
             wait_until="domcontentloaded",
             timeout=90000
         )
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1000)
 
         success = navigate_to_verify(page)
         if not success:
@@ -71,24 +71,24 @@ def verify(req: VerifyRequest):
                 wait_until="domcontentloaded",
                 timeout=90000
             )
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(1000)
 
-        page.locator('input[type="text"]').first.fill(req.udyam_no)
+        page.locator('input[type="text"]').first.fill(target)
 
         for attempt in range(5):
             try:
                 captcha_text = get_captcha_text(page)
             except Exception as e:
                 browser.close()
-                return {"error": f"CAPTCHA screenshot/OCR failed: {str(e)}"}
+                return {"error": f"CAPTCHA failed: {str(e)}"}
 
             captcha_input = page.locator(
                 "#ContentPlaceHolder1_txtCaptcha, input[name*='Captcha'], input[name*='captcha'], input[placeholder*='erification']"
             ).first
             captcha_input.fill(captcha_text)
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(300)
             page.locator("#ctl00_ContentPlaceHolder1_btnVerify").click()
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(3000)
 
             body_text = page.locator("body").inner_text()
             body_lower = body_text.lower()

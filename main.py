@@ -49,6 +49,8 @@ def verify(req: VerifyRequest):
         return {"error": "udyam_no is required"}
 
     target = req.udyam_no.strip().upper()
+    if not re.match(r"^UDYAM-[A-Z]{2}-\d{2}-\d{7}$", target):
+        return {"status": "not verified", "udyam_no": req.udyam_no, "reason": "invalid format"}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, slow_mo=500)
